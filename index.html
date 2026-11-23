@@ -34,8 +34,9 @@ ul{list-style:none;margin:0;padding:0}
 li{display:flex;align-items:center;gap:10px;padding:6px 0}
 .dish{flex:1;display:flex;flex-wrap:wrap;column-gap:10px;align-items:baseline}
 .what{font:500 26px/1.2 Caveat,cursive}
-.who{font-size:14px;color:var(--soft)}
-.who::before{content:"— "}
+.gwho{display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:14px;font-weight:500;color:var(--soft)}
+.gwho::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--gold);flex:none}
+.group ul{padding-left:16px;border-left:1.5px solid var(--line);margin-left:3px}
 .empty{font-size:15px;color:var(--soft);font-style:italic;padding:6px 0}
 .ib{flex:none;width:40px;height:40px;border:0;border-radius:10px;background:transparent;color:var(--soft);cursor:pointer;font-size:18px;display:grid;place-items:center}
 .ib:hover{background:var(--field);color:var(--ink)}
@@ -72,7 +73,8 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
     <form id="add" autocomplete="off">
       <p class="formtitle" id="ftitle">Adicionar à lista</p>
       <label>O que vai levar<input id="fwhat" required maxlength="80" placeholder="Ex.: Salpicão"></label>
-      <label>Quem leva<input id="fwho" required maxlength="60" placeholder="Ex.: Ana e Pedro"></label>
+      <label>Quem leva<input id="fwho" required maxlength="60" placeholder="Ex.: Ana e Pedro" list="pessoas"></label>
+      <datalist id="pessoas"></datalist>
       <label>Onde entra<select id="fcat"></select></label>
       <button class="btn add" id="fbtn" type="submit">Adicionar</button>
     </form>
@@ -105,6 +107,12 @@ $('bulbs').innerHTML = Array.from({length:16}, (_, i) => {
 }).join('');
 $('fcat').innerHTML = CATS.map(c => `<option>${c}</option>`).join('');
 
+const norm = s => s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+function groups(list){
+  const m = new Map();
+  for (const i of list) { const k = norm(i.who); if (!m.has(k)) m.set(k, {who: i.who, items: []}); m.get(k).items.push(i); }
+  return [...m.values()];
+}
 const shownCats = () => CATS.filter(c => BASE.includes(c) || items.some(i => i.cat === c));
 
 function render(){
@@ -112,11 +120,13 @@ function render(){
   $('courses').innerHTML = shownCats().map(cat => {
     const list = items.filter(i => i.cat === cat);
     return `<section class="course"><div class="chead"><h2>${cat}</h2><span class="count">${list.length ? list.length + (list.length > 1 ? ' itens' : ' item') : ''}</span></div>
-      ${list.length ? `<ul>${list.map(i => `<li class="${i.id === lastNew ? 'new' : ''}"><div class="dish"><span class="what">${esc(i.what)}</span><span class="who">${esc(i.who)}</span></div>
+      ${list.length ? groups(list).map(g => `<div class="group"><p class="gwho">${esc(g.who)}</p><ul>${g.items.map(i => `<li class="${i.id === lastNew ? 'new' : ''}"><div class="dish"><span class="what">${esc(i.what)}</span></div>
         <button class="ib" data-edit="${i.id}" aria-label="Editar ${esc(i.what)}">${pencil}</button>
-        <button class="ib" data-del="${i.id}" aria-label="Remover ${esc(i.what)}">${bin}</button></li>`).join('')}</ul>`
+        <button class="ib" data-del="${i.id}" aria-label="Remover ${esc(i.what)}">${bin}</button></li>`).join('')}</ul></div>`).join('')
         : `<p class="empty">Ninguém ainda. Quem se habilita?</p>`}</section>`;
   }).join('');
+  const names = [...new Map(items.map(i => [norm(i.who), i.who])).values()];
+  $('pessoas').innerHTML = names.map(n => `<option value="${esc(n)}">`).join('');
 }
 const setStatus = t => { $('status').textContent = t; };
 
@@ -160,7 +170,8 @@ $('add').addEventListener('submit', async e => {
       const [row] = await api(TABLE + '?select=id,cat,what,who', {method:'POST', body: JSON.stringify({what, who, cat})});
       items.push(row); lastNew = row.id;
     }
-    resetForm(); render(); setStatus('Salvo ✓');
+    try { localStorage.setItem('natal-quem', who); } catch {}
+    resetForm(); fillWho(); render(); setStatus('Salvo ✓');
   } catch { setStatus('Não deu para salvar. Tente de novo.'); }
   finally { busy = false; $('fbtn').disabled = false; }
 });
@@ -189,11 +200,12 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && editing) {
 
 $('copy').addEventListener('click', async () => {
   const txt = '🎄 ' + document.querySelector('h1').textContent + '\n\n' + shownCats().map(c =>
-    c + ':\n' + (items.filter(i => i.cat === c).map(i => `${i.what} - ${i.who}`).join('\n') || '(ninguém ainda)')).join('\n\n');
+    c + ':\n' + (groups(items.filter(i => i.cat === c)).map(g => `${g.items.map(i => i.what).join(' + ')} - ${g.who}`).join('\n') || '(ninguém ainda)')).join('\n\n');
   try { await navigator.clipboard.writeText(txt); setStatus('Lista copiada ✓'); } catch { setStatus('Não deu para copiar neste navegador.'); }
 });
 
-render(); load();
+function fillWho(){ try { const w = localStorage.getItem('natal-quem'); if (w && !$('fwho').value) $('fwho').value = w; } catch {} }
+fillWho(); render(); load();
 setInterval(() => { if (!document.hidden) load(); }, 5000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 }
