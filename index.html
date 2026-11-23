@@ -52,6 +52,14 @@ body.unlocked #gate{display:none}
 .gate p{margin:0 0 16px;color:var(--soft)}
 .gate form{margin:0;grid-template-columns:minmax(0,1fr) auto}
 .gate input{font-size:18px;letter-spacing:.04em}
+.gate .alt{margin:18px 0 0;padding-top:14px;border-top:1px dashed var(--line);font-size:15px;color:var(--soft)}
+.gate .alt button{background:none;border:0;padding:6px 0;color:var(--red);font:600 15px Outfit,sans-serif;text-decoration:underline;cursor:pointer}
+.gate #newform{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:12px}
+.gate #newform[hidden], .gate #codeform[hidden]{display:none}
+.hint{font-size:13px;color:var(--soft)}
+#renameform{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}
+#renameform[hidden]{display:none}
+#renameform input{height:44px;width:min(320px,100%)}
 .gate .err{color:var(--red);font-size:15px;margin:10px 0 0;min-height:1.5em}
 .link{background:none;border:0;color:var(--onbg);text-decoration:underline;font:15px Outfit,sans-serif;cursor:pointer;padding:10px 4px;opacity:.85}
 .count{font-size:13px;color:var(--soft);white-space:nowrap}
@@ -102,7 +110,14 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
       <label>Código<input id="code" required maxlength="40" autocapitalize="off" autocorrect="off" spellcheck="false" autofocus></label>
       <button class="btn" id="codebtn" type="submit">Abrir lista</button>
     </form>
+    <form id="newform" autocomplete="off" hidden>
+      <label>Nome da ceia<input id="nname" required maxlength="60" placeholder="Ex.: Ceia de Natal da família"></label>
+      <label>Escolha um código<input id="ncode" required minlength="4" maxlength="40" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Pelo menos 4 letras ou números"></label>
+      <span class="hint">Quem tiver o link e esse código vai poder ver e editar a lista.</span>
+      <button class="btn" id="nbtn" type="submit">Criar lista</button>
+    </form>
     <p class="err" id="codeerr" role="alert"></p>
+    <p class="alt" id="alt">Vai organizar outra ceia? <button type="button" id="togglenew">Criar uma lista nova</button></p>
   </section>
 
   <main class="card" id="list">
@@ -120,6 +135,9 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
   <div class="tools">
     <button class="btn ghost" id="copy" type="button">Copiar lista para o WhatsApp</button>
     <span class="status" id="status" role="status"></span>
+    <button class="btn ghost" id="invite" type="button">Copiar convite</button>
+    <button class="link" id="renamebtn" type="button">Renomear ceia</button>
+    <form id="renameform" hidden><input id="rname" maxlength="60" required aria-label="Novo nome da ceia"><button class="btn" type="submit">Salvar nome</button></form>
     <button class="link" id="logout" type="button">Trocar de lista</button>
   </div>
   <p class="note">Só quem tem o código vê e edita a lista. As mudanças aparecem para todos em poucos segundos.</p>
@@ -243,6 +261,38 @@ $('codeform').addEventListener('submit', async e => {
   finally { $('codebtn').disabled = false; }
 });
 $('logout').addEventListener('click', () => lock());
+let creating = false;
+function showCreate(on){
+  creating = on; $('newform').hidden = !on; $('codeform').hidden = on; $('codeerr').textContent = '';
+  document.querySelector('.gate h2').textContent = on ? 'Nova lista' : 'Qual é o código?';
+  document.querySelector('.gate h2 + p').textContent = on ? 'Dê um nome para a ceia e escolha o código que você vai mandar para o pessoal.' : 'Digite o código que você recebeu para abrir a lista.';
+  $('alt').innerHTML = on ? 'Já tem um código? <button type="button" id="togglenew">Abrir uma lista</button>' : 'Vai organizar outra ceia? <button type="button" id="togglenew">Criar uma lista nova</button>';
+  (on ? $('nname') : $('code')).focus();
+}
+$('alt').addEventListener('click', e => { if (e.target.id === 'togglenew') showCreate(!creating); });
+$('newform').addEventListener('submit', async e => {
+  e.preventDefault(); const t = $('nname').value.trim(), c = $('ncode').value.trim();
+  if (c.length < 4) { $('codeerr').textContent = 'Use pelo menos 4 letras ou números no código.'; return; }
+  $('nbtn').disabled = true; $('codeerr').textContent = '';
+  try {
+    await rpc('natal_criar', {p_titulo: t, p_codigo: c, p_pessoas: 10});
+    $('newform').reset(); showCreate(false); await unlock(c);
+    setStatus(`Lista criada ✓ Mande o link e o código "${c.toLowerCase()}" para o pessoal (botão Copiar convite).`);
+  } catch (err) {
+    const m = String(err.message);
+    $('codeerr').textContent = m.includes('em uso') ? 'Esse código já está em uso. Escolha outro.' : m.includes('curto') ? 'Use pelo menos 4 letras ou números no código.' : 'Não deu para criar agora. Tente de novo.';
+  } finally { $('nbtn').disabled = false; }
+});
+$('invite').addEventListener('click', async () => {
+  const txt = `🎄 ${titulo}\nCombina aqui o que cada um leva: ${location.origin + location.pathname}\nCódigo: ${codigo.toLowerCase()}`;
+  try { await navigator.clipboard.writeText(txt); setStatus('Convite copiado ✓'); } catch { setStatus('Não deu para copiar neste navegador.'); }
+});
+$('renamebtn').addEventListener('click', () => { $('renameform').hidden = false; $('renamebtn').hidden = true; $('rname').value = titulo; $('rname').focus(); });
+$('renameform').addEventListener('submit', async e => {
+  e.preventDefault(); const t = $('rname').value.trim(); if (!t) return;
+  try { await rpc('natal_titulo', {p_codigo: codigo, p_titulo: t}); titulo = t; showTitle(); setStatus('Nome salvo ✓'); $('renameform').hidden = true; $('renamebtn').hidden = false; }
+  catch (err) { if (denied(err)) lost(); else setStatus('Não deu para salvar o nome.'); }
+});
 let pTimer = null;
 let titulo = 'Lista de Natal';
 function showTitle(){ document.querySelector('h1').textContent = titulo; document.title = titulo; }
