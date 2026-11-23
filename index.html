@@ -45,6 +45,13 @@ h2{font:700 32px/1.1 Caveat,cursive;color:var(--red);margin:0}
 @media(prefers-reduced-motion:reduce){.music.on .bars i{animation:none;height:10px}}
 #snow{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
 .wrap{position:relative;z-index:1}
+body:not(.can-edit) .ib, body:not(.can-edit) #add, body:not(.can-edit) .people button{display:none}
+body:not(.can-edit) .people{padding-right:18px}
+.lock{display:grid;gap:10px;margin-top:18px;padding:16px;border-radius:12px;background:var(--field)}
+.lock p{margin:0;font-size:15px}
+.lock form{margin:0;grid-template-columns:minmax(0,1fr) auto}
+.lock[hidden]{display:none}
+.link{background:none;border:0;color:var(--onbg);text-decoration:underline;font:15px Outfit,sans-serif;cursor:pointer;padding:10px 4px;opacity:.85}
 .count{font-size:13px;color:var(--soft);white-space:nowrap}
 ul{list-style:none;margin:0;padding:0}
 li{display:flex;align-items:center;gap:10px;padding:2px 0}
@@ -96,13 +103,21 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
       <label>Onde entra<select id="fcat"></select></label>
       <button class="btn add" id="fbtn" type="submit">Adicionar</button>
     </form>
+    <div class="lock" id="lock">
+      <p>Para adicionar ou mudar pratos, digite o código da lista.</p>
+      <form id="codeform" autocomplete="off">
+        <label>Código<input id="code" required maxlength="40" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+        <button class="btn" id="codebtn" type="submit">Editar lista</button>
+      </form>
+    </div>
   </main>
 
   <div class="tools">
     <button class="btn ghost" id="copy" type="button">Copiar lista para o WhatsApp</button>
     <span class="status" id="status" role="status"></span>
+    <button class="link" id="logout" type="button" hidden>Sair do modo edição</button>
   </div>
-  <p class="note">A lista é compartilhada: tudo o que alguém adicionar aparece para todos com o link, em poucos segundos.</p>
+  <p class="note">Todo mundo com o link vê a lista; só quem tem o código consegue mudar. As mudanças aparecem para todos em poucos segundos.</p>
 </div>
 
 <button class="music" id="music" type="button" aria-pressed="false"><span class="bars" aria-hidden="true"><i></i><i></i><i></i></span><span id="musiclabel">Tocar música</span></button>
@@ -202,6 +217,27 @@ async function load(){
   } catch (e) { if (!loaded) $('courses').innerHTML = '<p class="empty">Não deu para carregar a lista. Recarregue a página daqui a pouco.</p>'; }
 }
 
+// Código de edição: conferido no banco (funções natal_*), não só aqui.
+let codigo = ''; try { codigo = localStorage.getItem('natal-codigo-' + LISTA) || ''; } catch {}
+const rpc = (fn, body) => api(API + '/rpc/' + fn, {method:'POST', body: JSON.stringify(body)});
+function setEdit(on){
+  document.body.classList.toggle('can-edit', on); $('lock').hidden = on; $('logout').hidden = !on;
+  if (!on) { codigo = ''; try { localStorage.removeItem('natal-codigo-' + LISTA); } catch {} resetForm(); }
+}
+const denied = e => /^(401|403)/.test(e.message) && String(e.message).includes('codigo');
+function lost(){ setEdit(false); setStatus('O código mudou ou não vale mais. Digite o código de novo.'); }
+$('codeform').addEventListener('submit', async e => {
+  e.preventDefault(); const c = $('code').value.trim(); if (!c) return;
+  $('codebtn').disabled = true;
+  try {
+    if (await rpc('natal_check', {p_lista: LISTA, p_codigo: c})) {
+      codigo = c; try { localStorage.setItem('natal-codigo-' + LISTA, c); } catch {}
+      $('code').value = ''; setEdit(true); setStatus('Modo edição ligado ✓'); render();
+    } else setStatus('Código errado. Confere com quem organizou.');
+  } catch { setStatus('Não deu para conferir o código. Tente de novo.'); }
+  finally { $('codebtn').disabled = false; }
+});
+$('logout').addEventListener('click', () => { setEdit(false); setStatus('Você saiu do modo edição.'); });
 let pTimer = null;
 let titulo = LISTA === 'amigos' ? 'Ceia de Natal dos amigos' : 'Ceia de Natal';
 function showTitle(){ document.querySelector('h1').textContent = titulo; document.title = titulo; }
@@ -211,8 +247,8 @@ function setPessoas(n){
   pessoas = n; $('pessoasn').value = n; render();
   clearTimeout(pTimer);
   pTimer = setTimeout(async () => {
-    try { await api(API + '/natal_listas?on_conflict=lista', {method:'POST', headers: {'Prefer':'resolution=merge-duplicates,return=minimal'}, body: JSON.stringify({lista: LISTA, pessoas})}); setStatus('Número de pessoas salvo ✓'); }
-    catch { setStatus('Não deu para salvar o número de pessoas.'); }
+    try { await rpc('natal_pessoas', {p_lista: LISTA, p_codigo: codigo, p_pessoas: pessoas}); setStatus('Número de pessoas salvo ✓'); }
+    catch (e) { if (denied(e)) lost(); else setStatus('Não deu para salvar o número de pessoas.'); }
     pTimer = null;
   }, 700);
 }
@@ -229,15 +265,15 @@ $('add').addEventListener('submit', async e => {
   busy = true; $('fbtn').disabled = true; setStatus('Salvando…');
   try {
     if (editing) {
-      const [row] = await api(TABLE + '?id=eq.' + encodeURIComponent(editing), {method:'PATCH', body: JSON.stringify({what, who, cat})});
+      const row = await rpc('natal_edit', {p_codigo: codigo, p_id: editing, p_cat: cat, p_what: what, p_who: who});
       items = items.map(i => i.id === row.id ? row : i);
     } else {
-      const [row] = await api(TABLE + '?select=id,cat,what,who', {method:'POST', body: JSON.stringify({what, who, cat, lista: LISTA})});
+      const row = await rpc('natal_add', {p_lista: LISTA, p_codigo: codigo, p_cat: cat, p_what: what, p_who: who});
       items.push(row); lastNew = row.id;
     }
     try { localStorage.setItem('natal-quem-' + LISTA, who); } catch {}
     resetForm(); fillWho(); render(); setStatus('Salvo ✓');
-  } catch { setStatus('Não deu para salvar. Tente de novo.'); }
+  } catch (e) { if (denied(e)) lost(); else setStatus('Não deu para salvar. Tente de novo.'); }
   finally { busy = false; $('fbtn').disabled = false; }
 });
 
@@ -252,8 +288,8 @@ $('courses').addEventListener('click', async e => {
   if (del && !busy) {
     if (del.dataset.confirm) {
       busy = true; setStatus('Removendo…');
-      try { await api(TABLE + '?id=eq.' + encodeURIComponent(del.dataset.del), {method:'DELETE'}); items = items.filter(i => String(i.id) !== del.dataset.del); render(); setStatus('Removido ✓'); }
-      catch { setStatus('Não deu para remover. Tente de novo.'); }
+      try { await rpc('natal_del', {p_codigo: codigo, p_id: +del.dataset.del}); items = items.filter(i => String(i.id) !== del.dataset.del); render(); setStatus('Removido ✓'); }
+      catch (e) { if (denied(e)) lost(); else setStatus('Não deu para remover. Tente de novo.'); }
       finally { busy = false; }
     } else {
       del.dataset.confirm = '1'; del.style.color = 'var(--red)'; setStatus('Clique na lixeira de novo para confirmar.');
@@ -336,6 +372,7 @@ if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
 
 function fillWho(){ try { const w = localStorage.getItem('natal-quem-' + LISTA); if (w && !$('fwho').value) $('fwho').value = w; } catch {} }
 fillWho(); render(); load();
+if (codigo) rpc('natal_check', {p_lista: LISTA, p_codigo: codigo}).then(ok => setEdit(!!ok)).catch(() => {}); else setEdit(false);
 setInterval(() => { if (!document.hidden) load(); }, 5000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 }
