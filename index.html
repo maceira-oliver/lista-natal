@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lista de Natal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Outfit:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: warm, festive, between friends — a group chat turned into a menu card
+   IDEA: the handwritten ceia menu stuck to the fridge, each dish signed by who brings it
+   PICTURE: the menu card itself, large, on a pine-green field with a strip of garland
+   COLOUR and TYPE: pine green field, white card, holly red accent, a touch of gold; Caveat for handwriting, Outfit for UI
+   LAYOUT: modest title, then the card with courses; add form sits inside the card */
+:root{color-scheme:light dark;
+  --bg:light-dark(#0f3d2e,#08241b);--card:light-dark(#ffffff,#10291f);--ink:light-dark(#14231d,#eef3ef);
+  --soft:light-dark(#5d6f66,#a5b8ad);--line:light-dark(#e3e9e5,#21412f);--red:light-dark(#c8102e,#ff5a6e);
+  --gold:#e8b84a;--onbg:#f3f7f4;--field:light-dark(#f4f7f5,#0b1f17)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Outfit,system-ui,sans-serif;overflow-x:clip;min-height:100vh}
+.wrap{max-width:820px;margin:0 auto;padding:clamp(20px,4vw,48px) max(4vw,14px) 60px}
+.garland{display:block;width:100%;height:46px;margin-bottom:6px}
+header{color:var(--onbg);margin-bottom:22px}
+h1{font:700 clamp(40px,7vw,60px)/1.02 Caveat,cursive;margin:0;text-wrap:balance}
+.sub{margin:6px 0 0;opacity:.85;font-size:16px}
+.card{background:var(--card);border-radius:18px;padding:clamp(18px,3.5vw,36px);box-shadow:0 24px 60px rgba(0,0,0,.35)}
+.course{padding:18px 0;border-bottom:1px dashed var(--line)}
+.course:first-of-type{padding-top:0}
+.chead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px}
+h2{font:700 32px/1.1 Caveat,cursive;color:var(--red);margin:0}
+.count{font-size:13px;color:var(--soft);white-space:nowrap}
+ul{list-style:none;margin:0;padding:0}
+li{display:flex;align-items:center;gap:10px;padding:6px 0}
+.dish{flex:1;display:flex;flex-wrap:wrap;column-gap:10px;align-items:baseline}
+.what{font:500 26px/1.2 Caveat,cursive}
+.who{font-size:14px;color:var(--soft)}
+.who::before{content:"— "}
+.empty{font-size:15px;color:var(--soft);font-style:italic;padding:6px 0}
+.ib{flex:none;width:40px;height:40px;border:0;border-radius:10px;background:transparent;color:var(--soft);cursor:pointer;font-size:18px;display:grid;place-items:center}
+.ib:hover{background:var(--field);color:var(--ink)}
+.ib svg{width:18px;height:18px}
+form{margin-top:22px;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,.8fr) auto;gap:10px;align-items:end}
+label{display:grid;gap:4px;font-size:13px;color:var(--soft)}
+input,select{font:16px Outfit,sans-serif;height:46px;padding:0 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--field);color:var(--ink);width:100%}
+input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outline-offset:1px}
+.btn{height:46px;padding:0 20px;border:0;border-radius:10px;background:var(--red);color:#fff;font:700 16px Outfit,sans-serif;cursor:pointer;white-space:nowrap}
+.btn:disabled{opacity:.5;cursor:wait}
+.btn.ghost{background:transparent;color:var(--onbg);border:1.5px solid rgba(255,255,255,.45)}
+.formtitle{grid-column:1/-1;margin:0;font-weight:700;font-size:15px}
+.tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px;color:var(--onbg)}
+.status{font-size:14px;opacity:.85}
+.note{font-size:13px;color:var(--onbg);opacity:.7;margin-top:14px}
+@media(max-width:600px){form{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}form label:first-of-type{grid-column:1/-1}.btn.add{grid-column:1/-1}}
+@media(prefers-reduced-motion:no-preference){li.new{animation:pop .5s ease}@keyframes pop{from{background:light-dark(#fff3c4,#3a3212)}}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <svg class="garland" viewBox="0 0 800 46" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0 8 Q100 40 200 8 T400 8 T600 8 T800 8" fill="none" stroke="#1f6b4a" stroke-width="6" stroke-linecap="round"/>
+    <g id="bulbs"></g>
+  </svg>
+  <header>
+    <h1>Ceia de Natal dos amigos</h1>
+    <p class="sub">Cada um escreve o que vai levar, assim ninguém repete prato.</p>
+  </header>
+
+  <main class="card">
+    <div id="courses"></div>
+    <form id="add" autocomplete="off">
+      <p class="formtitle" id="ftitle">Adicionar à lista</p>
+      <label>O que vai levar<input id="fwhat" required maxlength="80" placeholder="Ex.: Salpicão"></label>
+      <label>Quem leva<input id="fwho" required maxlength="60" placeholder="Ex.: Ana e Pedro"></label>
+      <label>Onde entra<select id="fcat"></select></label>
+      <button class="btn add" id="fbtn" type="submit">Adicionar</button>
+    </form>
+  </main>
+
+  <div class="tools">
+    <button class="btn ghost" id="copy" type="button">Copiar lista para o WhatsApp</button>
+    <span class="status" id="status" role="status"></span>
+  </div>
+  <p class="note">A lista é compartilhada: tudo o que alguém adicionar aparece para todos com o link, em poucos segundos.</p>
+</div>
+
+<script>
+{
+// Neon Data API (PostgREST). Preenchido no deploy.
+const API = 'https://ep-plain-smoke-bgfp89n1.apirest.c-9.eu-central-1.aws.neon.tech/neondb/rest/v1';
+const TABLE = API + '/natal_itens';
+const CATS = ['Entrada','Prato','Acompanhamento','Sobremesa','Bebidas','Outros'];
+const BASE = ['Entrada','Prato','Sobremesa'];
+const $ = id => document.getElementById(id);
+let items = [], busy = false, editing = null, lastNew = null, loaded = false;
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pencil = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>';
+const bin = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>';
+
+$('bulbs').innerHTML = Array.from({length:16}, (_, i) => {
+  const x = 25 + i * 50, y = 16 + 16 * Math.abs(Math.sin((x / 200) * Math.PI));
+  return `<circle cx="${x}" cy="${y}" r="6" fill="${['#c8102e','#e8b84a','#f3f7f4','#2f9e6b'][i % 4]}"/>`;
+}).join('');
+$('fcat').innerHTML = CATS.map(c => `<option>${c}</option>`).join('');
+
+const shownCats = () => CATS.filter(c => BASE.includes(c) || items.some(i => i.cat === c));
+
+function render(){
+  if (!loaded) { $('courses').innerHTML = '<p class="empty">Carregando a lista…</p>'; return; }
+  $('courses').innerHTML = shownCats().map(cat => {
+    const list = items.filter(i => i.cat === cat);
+    return `<section class="course"><div class="chead"><h2>${cat}</h2><span class="count">${list.length ? list.length + (list.length > 1 ? ' itens' : ' item') : ''}</span></div>
+      ${list.length ? `<ul>${list.map(i => `<li class="${i.id === lastNew ? 'new' : ''}"><div class="dish"><span class="what">${esc(i.what)}</span><span class="who">${esc(i.who)}</span></div>
+        <button class="ib" data-edit="${i.id}" aria-label="Editar ${esc(i.what)}">${pencil}</button>
+        <button class="ib" data-del="${i.id}" aria-label="Remover ${esc(i.what)}">${bin}</button></li>`).join('')}</ul>`
+        : `<p class="empty">Ninguém ainda. Quem se habilita?</p>`}</section>`;
+  }).join('');
+}
+const setStatus = t => { $('status').textContent = t; };
+
+async function api(path, opts = {}){
+  const r = await fetch(path, {...opts, headers: {'Content-Type':'application/json', 'Prefer':'return=representation', ...(opts.headers||{})}});
+  if (!r.ok) throw new Error(r.status + ' ' + await r.text());
+  return r.status === 204 ? null : r.json();
+}
+async function load(){
+  if (busy || editing) return;
+  try {
+    const data = await api(TABLE + '?select=id,cat,what,who&order=created_at.asc');
+    const sig = JSON.stringify(data);
+    if (sig !== JSON.stringify(items) || !loaded) { items = data; loaded = true; render(); }
+  } catch (e) { if (!loaded) $('courses').innerHTML = '<p class="empty">Não deu para carregar a lista. Recarregue a página daqui a pouco.</p>'; }
+}
+
+function resetForm(){ editing = null; $('add').reset(); $('ftitle').textContent = 'Adicionar à lista'; $('fbtn').textContent = 'Adicionar'; }
+
+$('add').addEventListener('submit', async e => {
+  e.preventDefault(); if (busy) return;
+  const what = $('fwhat').value.trim(), who = $('fwho').value.trim(), cat = $('fcat').value;
+  if (!what || !who) return;
+  busy = true; $('fbtn').disabled = true; setStatus('Salvando…');
+  try {
+    if (editing) {
+      const [row] = await api(TABLE + '?id=eq.' + encodeURIComponent(editing), {method:'PATCH', body: JSON.stringify({what, who, cat})});
+      items = items.map(i => i.id === row.id ? row : i);
+    } else {
+      const [row] = await api(TABLE + '?select=id,cat,what,who', {method:'POST', body: JSON.stringify({what, who, cat})});
+      items.push(row); lastNew = row.id;
+    }
+    resetForm(); render(); setStatus('Salvo ✓');
+  } catch { setStatus('Não deu para salvar. Tente de novo.'); }
+  finally { busy = false; $('fbtn').disabled = false; }
+});
+
+$('courses').addEventListener('click', async e => {
+  const ed = e.target.closest('[data-edit]'), del = e.target.closest('[data-del]');
+  if (ed) {
+    const it = items.find(i => String(i.id) === ed.dataset.edit); editing = it.id;
+    $('fwhat').value = it.what; $('fwho').value = it.who; $('fcat').value = it.cat;
+    $('ftitle').textContent = 'Editando: ' + it.what; $('fbtn').textContent = 'Salvar';
+    $('fwhat').focus(); $('add').scrollIntoView({behavior:'smooth', block:'center'});
+  }
+  if (del && !busy) {
+    if (del.dataset.confirm) {
+      busy = true; setStatus('Removendo…');
+      try { await api(TABLE + '?id=eq.' + encodeURIComponent(del.dataset.del), {method:'DELETE'}); items = items.filter(i => String(i.id) !== del.dataset.del); render(); setStatus('Removido ✓'); }
+      catch { setStatus('Não deu para remover. Tente de novo.'); }
+      finally { busy = false; }
+    } else {
+      del.dataset.confirm = '1'; del.style.color = 'var(--red)'; setStatus('Clique na lixeira de novo para confirmar.');
+      setTimeout(() => { if (del.isConnected) { delete del.dataset.confirm; del.style.color = ''; } }, 3000);
+    }
+  }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && editing) { resetForm(); load(); } });
+
+$('copy').addEventListener('click', async () => {
+  const txt = '🎄 ' + document.querySelector('h1').textContent + '\n\n' + shownCats().map(c =>
+    c + ':\n' + (items.filter(i => i.cat === c).map(i => `${i.what} - ${i.who}`).join('\n') || '(ninguém ainda)')).join('\n\n');
+  try { await navigator.clipboard.writeText(txt); setStatus('Lista copiada ✓'); } catch { setStatus('Não deu para copiar neste navegador.'); }
+});
+
+render(); load();
+setInterval(() => { if (!document.hidden) load(); }, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+}
+</script>
+</body>
+</html>
