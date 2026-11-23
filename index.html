@@ -45,12 +45,14 @@ h2{font:700 32px/1.1 Caveat,cursive;color:var(--red);margin:0}
 @media(prefers-reduced-motion:reduce){.music.on .bars i{animation:none;height:10px}}
 #snow{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
 .wrap{position:relative;z-index:1}
-body:not(.can-edit) .ib, body:not(.can-edit) #add, body:not(.can-edit) .people button{display:none}
-body:not(.can-edit) .people{padding-right:18px}
-.lock{display:grid;gap:10px;margin-top:18px;padding:16px;border-radius:12px;background:var(--field)}
-.lock p{margin:0;font-size:15px}
-.lock form{margin:0;grid-template-columns:minmax(0,1fr) auto}
-.lock[hidden]{display:none}
+body:not(.unlocked) .sub, body:not(.unlocked) .people, body:not(.unlocked) #list, body:not(.unlocked) .tools, body:not(.unlocked) .note{display:none}
+body.unlocked #gate{display:none}
+.gate{max-width:460px}
+.gate h2{margin:0 0 6px}
+.gate p{margin:0 0 16px;color:var(--soft)}
+.gate form{margin:0;grid-template-columns:minmax(0,1fr) auto}
+.gate input{font-size:18px;letter-spacing:.04em}
+.gate .err{color:var(--red);font-size:15px;margin:10px 0 0;min-height:1.5em}
 .link{background:none;border:0;color:var(--onbg);text-decoration:underline;font:15px Outfit,sans-serif;cursor:pointer;padding:10px 4px;opacity:.85}
 .count{font-size:13px;color:var(--soft);white-space:nowrap}
 ul{list-style:none;margin:0;padding:0}
@@ -85,7 +87,7 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
 <div class="wrap">
   <svg class="garland" id="garland" aria-hidden="true"></svg>
   <header>
-    <h1>Ceia de Natal dos amigos</h1>
+    <h1>Lista de Natal</h1>
     <p class="sub">Cada um escreve o que vai levar, assim ninguém repete prato.</p>
     <div class="people">Somos
       <button type="button" id="pminus" aria-label="Menos uma pessoa">−</button>
@@ -93,7 +95,17 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
       <button type="button" id="pplus" aria-label="Mais uma pessoa">+</button> pessoas</div>
   </header>
 
-  <main class="card">
+  <section class="card gate" id="gate">
+    <h2>Qual é o código?</h2>
+    <p>Digite o código que você recebeu para abrir a lista.</p>
+    <form id="codeform" autocomplete="off">
+      <label>Código<input id="code" required maxlength="40" autocapitalize="off" autocorrect="off" spellcheck="false" autofocus></label>
+      <button class="btn" id="codebtn" type="submit">Abrir lista</button>
+    </form>
+    <p class="err" id="codeerr" role="alert"></p>
+  </section>
+
+  <main class="card" id="list">
     <div id="courses"></div>
     <form id="add" autocomplete="off">
       <p class="formtitle" id="ftitle">Adicionar à lista</p>
@@ -103,21 +115,14 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
       <label>Onde entra<select id="fcat"></select></label>
       <button class="btn add" id="fbtn" type="submit">Adicionar</button>
     </form>
-    <div class="lock" id="lock">
-      <p>Para adicionar ou mudar pratos, digite o código da lista.</p>
-      <form id="codeform" autocomplete="off">
-        <label>Código<input id="code" required maxlength="40" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
-        <button class="btn" id="codebtn" type="submit">Editar lista</button>
-      </form>
-    </div>
   </main>
 
   <div class="tools">
     <button class="btn ghost" id="copy" type="button">Copiar lista para o WhatsApp</button>
     <span class="status" id="status" role="status"></span>
-    <button class="link" id="logout" type="button" hidden>Sair do modo edição</button>
+    <button class="link" id="logout" type="button">Trocar de lista</button>
   </div>
-  <p class="note">Todo mundo com o link vê a lista; só quem tem o código consegue mudar. As mudanças aparecem para todos em poucos segundos.</p>
+  <p class="note">Só quem tem o código vê e edita a lista. As mudanças aparecem para todos em poucos segundos.</p>
 </div>
 
 <button class="music" id="music" type="button" aria-pressed="false"><span class="bars" aria-hidden="true"><i></i><i></i><i></i></span><span id="musiclabel">Tocar música</span></button>
@@ -125,10 +130,9 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
 {
 // Neon Data API (PostgREST). Preenchido no deploy.
 const API = 'https://ep-plain-smoke-bgfp89n1.apirest.c-9.eu-central-1.aws.neon.tech/neondb/rest/v1';
-const TABLE = API + '/natal_itens';
-// Cada lista tem seu link: sem # é a dos amigos; #familia, #trabalho… são listas separadas.
-const LISTA = (decodeURIComponent(location.hash.slice(1)).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)) || 'amigos';
-addEventListener('hashchange', () => location.reload());
+// O código decide qual lista abre (amigos, família…); tudo é conferido no banco.
+let LISTA = null;
+let codigo = ''; try { codigo = localStorage.getItem('natal-codigo') || ''; } catch {}
 const CATS = ['Entrada','Prato','Acompanhamento','Sobremesa','Bebidas','Outros'];
 const BASE = ['Entrada','Prato','Acompanhamento','Sobremesa','Bebidas'];
 let pessoas = 12;
@@ -206,40 +210,41 @@ async function api(path, opts = {}, retry = true){
   if (!r.ok) throw new Error(r.status + ' ' + await r.text());
   const t = await r.text(); return t ? JSON.parse(t) : null;
 }
-async function load(){
-  if (busy || editing) return;
-  try {
-    const [data, cfg] = await Promise.all([api(TABLE + '?select=id,cat,what,who&order=created_at.asc&lista=eq.' + LISTA), api(API + '/natal_listas?select=titulo,pessoas&lista=eq.' + LISTA)]);
-    if (cfg[0] && cfg[0].titulo !== titulo) { titulo = cfg[0].titulo; showTitle(); }
-    if (cfg[0] && !pTimer && document.activeElement !== $('pessoasn') && cfg[0].pessoas !== pessoas) { pessoas = cfg[0].pessoas; $('pessoasn').value = pessoas; render(); }
-    const sig = JSON.stringify(data);
-    if (sig !== JSON.stringify(items) || !loaded) { items = data; loaded = true; render(); }
-  } catch (e) { if (!loaded) $('courses').innerHTML = '<p class="empty">Não deu para carregar a lista. Recarregue a página daqui a pouco.</p>'; }
+async function load(c = codigo){
+  if (!c || busy || editing) return false;
+  const data = await rpc('natal_abrir', {p_codigo: c});
+  LISTA = data.lista;
+  if (data.titulo !== titulo) { titulo = data.titulo; showTitle(); }
+  if (!pTimer && document.activeElement !== $('pessoasn') && data.pessoas !== pessoas) { pessoas = data.pessoas; $('pessoasn').value = pessoas; }
+  if (JSON.stringify(data.itens) !== JSON.stringify(items) || !loaded) { items = data.itens; loaded = true; }
+  render();
+  return true;
 }
+async function poll(){ try { await load(); } catch (e) { if (denied(e)) lost(); } }
 
-// Código de edição: conferido no banco (funções natal_*), não só aqui.
-let codigo = ''; try { codigo = localStorage.getItem('natal-codigo-' + LISTA) || ''; } catch {}
 const rpc = (fn, body) => api(API + '/rpc/' + fn, {method:'POST', body: JSON.stringify(body)});
-function setEdit(on){
-  document.body.classList.toggle('can-edit', on); $('lock').hidden = on; $('logout').hidden = !on;
-  if (!on) { codigo = ''; try { localStorage.removeItem('natal-codigo-' + LISTA); } catch {} resetForm(); }
-}
 const denied = e => /^(401|403)/.test(e.message) && String(e.message).includes('codigo');
-function lost(){ setEdit(false); setStatus('O código mudou ou não vale mais. Digite o código de novo.'); }
+function lock(msg){
+  document.body.classList.remove('unlocked'); codigo = ''; LISTA = null; items = []; loaded = false;
+  try { localStorage.removeItem('natal-codigo'); } catch {}
+  titulo = 'Lista de Natal'; showTitle(); resetForm(); $('codeerr').textContent = msg || ''; setStatus('');
+}
+function lost(){ lock('O código mudou. Digite o código novo.'); }
+async function unlock(c){
+  if (!await load(c)) return;
+  codigo = c; try { localStorage.setItem('natal-codigo', c); } catch {}
+  document.body.classList.add('unlocked'); $('codeerr').textContent = ''; $('code').value = ''; fillWho();
+}
 $('codeform').addEventListener('submit', async e => {
   e.preventDefault(); const c = $('code').value.trim(); if (!c) return;
-  $('codebtn').disabled = true;
-  try {
-    if (await rpc('natal_check', {p_lista: LISTA, p_codigo: c})) {
-      codigo = c; try { localStorage.setItem('natal-codigo-' + LISTA, c); } catch {}
-      $('code').value = ''; setEdit(true); setStatus('Modo edição ligado ✓'); render();
-    } else setStatus('Código errado. Confere com quem organizou.');
-  } catch { setStatus('Não deu para conferir o código. Tente de novo.'); }
+  $('codebtn').disabled = true; $('codeerr').textContent = '';
+  try { await unlock(c); }
+  catch (err) { $('codeerr').textContent = denied(err) ? 'Código errado. Confere com quem te mandou o link.' : 'Não deu para abrir agora. Tente de novo.'; }
   finally { $('codebtn').disabled = false; }
 });
-$('logout').addEventListener('click', () => { setEdit(false); setStatus('Você saiu do modo edição.'); });
+$('logout').addEventListener('click', () => lock());
 let pTimer = null;
-let titulo = LISTA === 'amigos' ? 'Ceia de Natal dos amigos' : 'Ceia de Natal';
+let titulo = 'Lista de Natal';
 function showTitle(){ document.querySelector('h1').textContent = titulo; document.title = titulo; }
 showTitle();
 function setPessoas(n){
@@ -247,7 +252,7 @@ function setPessoas(n){
   pessoas = n; $('pessoasn').value = n; render();
   clearTimeout(pTimer);
   pTimer = setTimeout(async () => {
-    try { await rpc('natal_pessoas', {p_lista: LISTA, p_codigo: codigo, p_pessoas: pessoas}); setStatus('Número de pessoas salvo ✓'); }
+    try { await rpc('natal_pessoas', {p_codigo: codigo, p_pessoas: pessoas}); setStatus('Número de pessoas salvo ✓'); }
     catch (e) { if (denied(e)) lost(); else setStatus('Não deu para salvar o número de pessoas.'); }
     pTimer = null;
   }, 700);
@@ -268,7 +273,7 @@ $('add').addEventListener('submit', async e => {
       const row = await rpc('natal_edit', {p_codigo: codigo, p_id: editing, p_cat: cat, p_what: what, p_who: who});
       items = items.map(i => i.id === row.id ? row : i);
     } else {
-      const row = await rpc('natal_add', {p_lista: LISTA, p_codigo: codigo, p_cat: cat, p_what: what, p_who: who});
+      const row = await rpc('natal_add', {p_codigo: codigo, p_cat: cat, p_what: what, p_who: who});
       items.push(row); lastNew = row.id;
     }
     try { localStorage.setItem('natal-quem-' + LISTA, who); } catch {}
@@ -297,7 +302,7 @@ $('courses').addEventListener('click', async e => {
     }
   }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && editing) { resetForm(); load(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && editing) { resetForm(); poll(); } });
 
 $('copy').addEventListener('click', async () => {
   const txt = '🎄 ' + document.querySelector('h1').textContent + ` (${pessoas} pessoas)` + '\n\n' + shownCats().map(c =>
@@ -371,10 +376,10 @@ if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
 }
 
 function fillWho(){ try { const w = localStorage.getItem('natal-quem-' + LISTA); if (w && !$('fwho').value) $('fwho').value = w; } catch {} }
-fillWho(); render(); load();
-if (codigo) rpc('natal_check', {p_lista: LISTA, p_codigo: codigo}).then(ok => setEdit(!!ok)).catch(() => {}); else setEdit(false);
-setInterval(() => { if (!document.hidden) load(); }, 5000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+render();
+if (codigo) unlock(codigo).catch(e => lock(denied(e) ? 'O código mudou. Digite o código novo.' : ''));
+setInterval(() => { if (!document.hidden && codigo) poll(); }, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && codigo) poll(); });
 }
 </script>
 </body>
