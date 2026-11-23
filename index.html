@@ -111,6 +111,9 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
 // Neon Data API (PostgREST). Preenchido no deploy.
 const API = 'https://ep-plain-smoke-bgfp89n1.apirest.c-9.eu-central-1.aws.neon.tech/neondb/rest/v1';
 const TABLE = API + '/natal_itens';
+// Cada lista tem seu link: sem # é a dos amigos; #familia, #trabalho… são listas separadas.
+const LISTA = (decodeURIComponent(location.hash.slice(1)).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)) || 'amigos';
+addEventListener('hashchange', () => location.reload());
 const CATS = ['Entrada','Prato','Acompanhamento','Sobremesa','Bebidas','Outros'];
 const BASE = ['Entrada','Prato','Acompanhamento','Sobremesa','Bebidas'];
 let pessoas = 12;
@@ -186,12 +189,13 @@ async function api(path, opts = {}, retry = true){
   const r = await fetch(path, {...opts, headers: {'Content-Type':'application/json', 'Prefer':'return=representation', 'Authorization':'Bearer ' + await token(!retry), ...(opts.headers||{})}});
   if (r.status === 401 && retry) return api(path, opts, false);
   if (!r.ok) throw new Error(r.status + ' ' + await r.text());
-  return r.status === 204 ? null : r.json();
+  const t = await r.text(); return t ? JSON.parse(t) : null;
 }
 async function load(){
   if (busy || editing) return;
   try {
-    const [data, cfg] = await Promise.all([api(TABLE + '?select=id,cat,what,who&order=created_at.asc'), api(API + '/natal_config?select=pessoas&id=eq.1')]);
+    const [data, cfg] = await Promise.all([api(TABLE + '?select=id,cat,what,who&order=created_at.asc&lista=eq.' + LISTA), api(API + '/natal_listas?select=titulo,pessoas&lista=eq.' + LISTA)]);
+    if (cfg[0] && cfg[0].titulo !== titulo) { titulo = cfg[0].titulo; showTitle(); }
     if (cfg[0] && !pTimer && document.activeElement !== $('pessoasn') && cfg[0].pessoas !== pessoas) { pessoas = cfg[0].pessoas; $('pessoasn').value = pessoas; render(); }
     const sig = JSON.stringify(data);
     if (sig !== JSON.stringify(items) || !loaded) { items = data; loaded = true; render(); }
@@ -199,12 +203,15 @@ async function load(){
 }
 
 let pTimer = null;
+let titulo = LISTA === 'amigos' ? 'Ceia de Natal dos amigos' : 'Ceia de Natal';
+function showTitle(){ document.querySelector('h1').textContent = titulo; document.title = titulo; }
+showTitle();
 function setPessoas(n){
   n = Math.max(1, Math.min(200, Math.round(+n) || 1));
   pessoas = n; $('pessoasn').value = n; render();
   clearTimeout(pTimer);
   pTimer = setTimeout(async () => {
-    try { await api(API + '/natal_config?id=eq.1', {method:'PATCH', body: JSON.stringify({pessoas})}); setStatus('Número de pessoas salvo ✓'); }
+    try { await api(API + '/natal_listas?on_conflict=lista', {method:'POST', headers: {'Prefer':'resolution=merge-duplicates,return=minimal'}, body: JSON.stringify({lista: LISTA, pessoas})}); setStatus('Número de pessoas salvo ✓'); }
     catch { setStatus('Não deu para salvar o número de pessoas.'); }
     pTimer = null;
   }, 700);
@@ -225,10 +232,10 @@ $('add').addEventListener('submit', async e => {
       const [row] = await api(TABLE + '?id=eq.' + encodeURIComponent(editing), {method:'PATCH', body: JSON.stringify({what, who, cat})});
       items = items.map(i => i.id === row.id ? row : i);
     } else {
-      const [row] = await api(TABLE + '?select=id,cat,what,who', {method:'POST', body: JSON.stringify({what, who, cat})});
+      const [row] = await api(TABLE + '?select=id,cat,what,who', {method:'POST', body: JSON.stringify({what, who, cat, lista: LISTA})});
       items.push(row); lastNew = row.id;
     }
-    try { localStorage.setItem('natal-quem', who); } catch {}
+    try { localStorage.setItem('natal-quem-' + LISTA, who); } catch {}
     resetForm(); fillWho(); render(); setStatus('Salvo ✓');
   } catch { setStatus('Não deu para salvar. Tente de novo.'); }
   finally { busy = false; $('fbtn').disabled = false; }
@@ -327,7 +334,7 @@ if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
   requestAnimationFrame(tick);
 }
 
-function fillWho(){ try { const w = localStorage.getItem('natal-quem'); if (w && !$('fwho').value) $('fwho').value = w; } catch {} }
+function fillWho(){ try { const w = localStorage.getItem('natal-quem-' + LISTA); if (w && !$('fwho').value) $('fwho').value = w; } catch {} }
 fillWho(); render(); load();
 setInterval(() => { if (!document.hidden) load(); }, 5000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
