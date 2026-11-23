@@ -29,6 +29,13 @@ h1{font:700 clamp(40px,7vw,60px)/1.02 Caveat,cursive;margin:0;text-wrap:balance}
 .course:first-of-type{padding-top:0}
 .chead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px}
 h2{font:700 32px/1.1 Caveat,cursive;color:var(--red);margin:0}
+.tip{margin:0 0 6px;font-size:14px;color:var(--soft)}
+.tip b{color:var(--ink);font-weight:500}
+.people{display:inline-flex;align-items:center;gap:10px;margin-top:16px;background:rgba(255,255,255,.08);border-radius:999px;padding:6px 8px 6px 18px;font-size:16px}
+.people button{width:36px;height:36px;border-radius:50%;border:0;background:rgba(255,255,255,.14);color:var(--onbg);font:700 20px/1 Outfit,sans-serif;cursor:pointer}
+.people button:hover{background:rgba(255,255,255,.24)}
+.people input{width:58px;height:36px;text-align:center;border:0;background:transparent;color:var(--onbg);font:700 20px Outfit,sans-serif;padding:0;-moz-appearance:textfield}
+.people input::-webkit-inner-spin-button{-webkit-appearance:none}
 .count{font-size:13px;color:var(--soft);white-space:nowrap}
 ul{list-style:none;margin:0;padding:0}
 li{display:flex;align-items:center;gap:10px;padding:2px 0}
@@ -66,6 +73,10 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
   <header>
     <h1>Ceia de Natal dos amigos</h1>
     <p class="sub">Cada um escreve o que vai levar, assim ninguém repete prato.</p>
+    <div class="people">Somos
+      <button type="button" id="pminus" aria-label="Menos uma pessoa">−</button>
+      <input id="pessoasn" type="number" inputmode="numeric" min="1" max="200" value="12" aria-label="Número de pessoas">
+      <button type="button" id="pplus" aria-label="Mais uma pessoa">+</button> pessoas</div>
   </header>
 
   <main class="card">
@@ -93,7 +104,17 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--gold);outl
 const API = 'https://ep-plain-smoke-bgfp89n1.apirest.c-9.eu-central-1.aws.neon.tech/neondb/rest/v1';
 const TABLE = API + '/natal_itens';
 const CATS = ['Entrada','Prato','Acompanhamento','Sobremesa','Bebidas','Outros'];
-const BASE = ['Entrada','Prato','Sobremesa'];
+const BASE = ['Entrada','Prato','Acompanhamento','Sobremesa','Bebidas'];
+let pessoas = 12;
+const kg = g => g >= 1000 ? (Math.round(g / 100) / 10).toLocaleString('pt-BR') + ' kg' : Math.round(g / 50) * 50 + ' g';
+const per = (g, n) => n > 1 ? ` · uns <b>${kg(g / n)}</b> por prato` : '';
+const TIPS = {
+  Entrada:        (p, n) => `Para ${p} pessoas: uns <b>${kg(p * 120)}</b> no total (≈120 g/pessoa)${per(p * 120, n)}`,
+  Prato:          (p, n) => `Para ${p} pessoas: uns <b>${kg(p * 350)}</b> de carne/prato principal (≈350 g/pessoa)${per(p * 350, n)}`,
+  Acompanhamento: (p, n) => `Para ${p} pessoas: uns <b>${kg(p * 200)}</b> somando tudo (≈200 g/pessoa, ex.: arroz, farofa, salada)${per(p * 200, n)}`,
+  Sobremesa:      (p, n) => `Para ${p} pessoas: uns <b>${Math.ceil(p * 1.5)} porções</b> no total (≈1,5 por pessoa)${n > 1 ? ` · ${Math.ceil(p * 1.5 / n)} por sobremesa` : ''}`,
+  Bebidas:        p => `Para ${p} pessoas: uns <b>${Math.ceil(p / 2)} vinhos</b> (½ garrafa por adulto) e <b>${p} L</b> de água/refri`,
+};
 const $ = id => document.getElementById(id);
 let items = [], busy = false, editing = null, lastNew = null, loaded = false;
 
@@ -120,6 +141,7 @@ function render(){
   $('courses').innerHTML = shownCats().map(cat => {
     const list = items.filter(i => i.cat === cat);
     return `<section class="course"><div class="chead"><h2>${cat}</h2><span class="count">${list.length ? list.length + (list.length > 1 ? ' itens' : ' item') : ''}</span></div>
+      ${TIPS[cat] ? `<p class="tip">${TIPS[cat](pessoas, list.length)}</p>` : ''}
       ${list.length ? groups(list).map(g => `<div class="group"><p class="gwho">${esc(g.who)}</p><ul>${g.items.map(i => `<li class="${i.id === lastNew ? 'new' : ''}"><div class="dish"><span class="what">${esc(i.what)}</span></div>
         <button class="ib" data-edit="${i.id}" aria-label="Editar ${esc(i.what)}">${pencil}</button>
         <button class="ib" data-del="${i.id}" aria-label="Remover ${esc(i.what)}">${bin}</button></li>`).join('')}</ul></div>`).join('')
@@ -149,11 +171,27 @@ async function api(path, opts = {}, retry = true){
 async function load(){
   if (busy || editing) return;
   try {
-    const data = await api(TABLE + '?select=id,cat,what,who&order=created_at.asc');
+    const [data, cfg] = await Promise.all([api(TABLE + '?select=id,cat,what,who&order=created_at.asc'), api(API + '/natal_config?select=pessoas&id=eq.1')]);
+    if (cfg[0] && !pTimer && document.activeElement !== $('pessoasn') && cfg[0].pessoas !== pessoas) { pessoas = cfg[0].pessoas; $('pessoasn').value = pessoas; render(); }
     const sig = JSON.stringify(data);
     if (sig !== JSON.stringify(items) || !loaded) { items = data; loaded = true; render(); }
   } catch (e) { if (!loaded) $('courses').innerHTML = '<p class="empty">Não deu para carregar a lista. Recarregue a página daqui a pouco.</p>'; }
 }
+
+let pTimer = null;
+function setPessoas(n){
+  n = Math.max(1, Math.min(200, Math.round(+n) || 1));
+  pessoas = n; $('pessoasn').value = n; render();
+  clearTimeout(pTimer);
+  pTimer = setTimeout(async () => {
+    try { await api(API + '/natal_config?id=eq.1', {method:'PATCH', body: JSON.stringify({pessoas})}); setStatus('Número de pessoas salvo ✓'); }
+    catch { setStatus('Não deu para salvar o número de pessoas.'); }
+    pTimer = null;
+  }, 700);
+}
+$('pminus').addEventListener('click', () => setPessoas(pessoas - 1));
+$('pplus').addEventListener('click', () => setPessoas(pessoas + 1));
+$('pessoasn').addEventListener('change', e => setPessoas(e.target.value));
 
 function resetForm(){ editing = null; $('add').reset(); $('ftitle').textContent = 'Adicionar à lista'; $('fbtn').textContent = 'Adicionar'; }
 
@@ -199,7 +237,7 @@ $('courses').addEventListener('click', async e => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && editing) { resetForm(); load(); } });
 
 $('copy').addEventListener('click', async () => {
-  const txt = '🎄 ' + document.querySelector('h1').textContent + '\n\n' + shownCats().map(c =>
+  const txt = '🎄 ' + document.querySelector('h1').textContent + ` (${pessoas} pessoas)` + '\n\n' + shownCats().map(c =>
     c + ':\n' + (groups(items.filter(i => i.cat === c)).map(g => `${g.items.map(i => i.what).join(' + ')} - ${g.who}`).join('\n') || '(ninguém ainda)')).join('\n\n');
   try { await navigator.clipboard.writeText(txt); setStatus('Lista copiada ✓'); } catch { setStatus('Não deu para copiar neste navegador.'); }
 });
