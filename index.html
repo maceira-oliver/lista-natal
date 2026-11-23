@@ -120,8 +120,19 @@ function render(){
 }
 const setStatus = t => { $('status').textContent = t; };
 
-async function api(path, opts = {}){
-  const r = await fetch(path, {...opts, headers: {'Content-Type':'application/json', 'Prefer':'return=representation', ...(opts.headers||{})}});
+// Token anônimo do Neon Auth (sem login), renovado antes de expirar.
+const AUTH = 'https://ep-plain-smoke-bgfp89n1.neonauth.c-9.eu-central-1.aws.neon.tech/neondb/auth/token/anonymous';
+let tok = null, tokExp = 0;
+async function token(force){
+  if (!force && tok && Date.now() < tokExp - 60000) return tok;
+  const r = await fetch(AUTH); if (!r.ok) throw new Error('auth ' + r.status);
+  tok = (await r.json()).token;
+  try { tokExp = JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp * 1000; } catch { tokExp = Date.now() + 5 * 60000; }
+  return tok;
+}
+async function api(path, opts = {}, retry = true){
+  const r = await fetch(path, {...opts, headers: {'Content-Type':'application/json', 'Prefer':'return=representation', 'Authorization':'Bearer ' + await token(!retry), ...(opts.headers||{})}});
+  if (r.status === 401 && retry) return api(path, opts, false);
   if (!r.ok) throw new Error(r.status + ' ' + await r.text());
   return r.status === 204 ? null : r.json();
 }
